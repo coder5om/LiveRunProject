@@ -1,7 +1,8 @@
 import time
+from datetime import datetime, timedelta
 import pymysql
 from dhanhq import marketfeed, dhanhq
-from config import client_id, access_token
+from config import client_id, access_token, optionPercentChangeIn30Sec
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
@@ -13,7 +14,7 @@ from utility_methods import place_order  # Import utility functions
 
 # 41487 PE
 dhan = dhanhq(client_id, access_token)
-security_id = "41320"
+security_id = "41306"
 fund = 50000
 quantity = 50
 
@@ -28,6 +29,7 @@ capital = 10000  # Initial capital
 profit_threshold = 0.3  # 5% profit
 loss_threshold = -0.15 # 10% loss
 ltp_threshold = 0.02  # 1% change to trigger a trade
+tradeAllowSignal = None
 
 # Configure logging
 log_file = 'WebSocket.log'
@@ -45,6 +47,56 @@ connection = pymysql.connect(host='localhost',
 
 cursor = connection.cursor()
 
+def wait_until_next_interval():
+    now = datetime.now()
+    next_interval = now + timedelta(seconds=30 - now.second % 30)
+    next_interval = next_interval.replace(microsecond=0)
+    wait_time = (next_interval - now).total_seconds()
+    logging.info(f"Waiting {wait_time:.2f} seconds until the next interval.")
+    time.sleep(wait_time)  # Sleep until the next interval
+
+# Function to collect all prices over a 30-second interval
+def collect_prices_for_interval(data):
+    prices = []
+    start_time = datetime.now()
+    logging.info(f"Price Collection started at :  {start_time} .")
+    end_time = start_time + timedelta(seconds=180)
+
+    while datetime.now() < end_time:
+        response = data.get_data()
+        current_ltp = float(response['LTP'])
+        prices.append(current_ltp)
+        time.sleep(0.5)  # Adjust based on frequency of price changes
+
+    logging.info(f"Collected {prices} prices over the interval.")
+    logging.info(f"Length of Collected {len(prices)} prices over the interval.")
+    v= datetime.now()
+    logging.info(f"Price Collection ended at :  {v} .")
+    return prices
+
+def check_price_difference(prices):
+
+    if len(prices) >= 2:  # Ensure there are at least two price points
+        first_price = prices[0]
+        last_price = prices[-1]
+        price_change_percentage = (last_price - first_price) / first_price * 100
+
+        logging.info(f"First Price: {first_price}, Last Price: {last_price}")
+        logging.info(f"Price Change Percentage: {price_change_percentage}%")
+
+        if price_change_percentage >= optionPercentChangeIn30Sec :
+            tradeAllowSignal = True
+            logging.info(f"Price change is {optionPercentChangeIn30Sec}  or more, allowing trade.")
+        else:
+            tradeAllowSignal = False
+            logging.info(f"Price change is less than {optionPercentChangeIn30Sec} , not allowing trade.")
+
+    else:
+        logging.warning("Not enough price data to calculate the change.")
+        tradeAllowSignal = False
+
+    return tradeAllowSignal
+
 def store_trade_results(ltp_change, profit_or_loss_percent, buy_price=None, sell_price=None):
     sql = "INSERT INTO trade_results2 (ltp_change, profit_loss_percent, buy_price, sell_price) VALUES (%s, %s, %s, %s)"
     cursor.execute(sql, (ltp_change, profit_or_loss_percent, buy_price, sell_price))
@@ -61,16 +113,19 @@ try:
     sell_price = None  # Track the sell price
 
     while True:
-        # wings_open = wait_until_next_interval()
-
         data.run_forever()
         response = data.get_data()
         print("Response received:", response)
-
+        if trade_executed is False:
+            wait_until_next_interval()
+        if trade_executed is False:
+            prices = collect_prices_for_interval(data)
+            tradeAllowSignal = check_price_difference(prices)
 
         # Check if the response contains LTP data
         if 'LTP' in response:
             # Convert LTP to float, as it's coming as a string
+            response = data.get_data()
             current_ltp = float(response['LTP'])
             print(f"Current LTP: {current_ltp}")
 
@@ -92,8 +147,7 @@ try:
             previous_ltp = current_ltp
 
             # Check for 2% LTP change to trigger a trade
-            if not trade_executed and ltp_change >= ltp_threshold:
-
+            if not trade_executed and tradeAllowSignal:
                 print(f"Placing Market order at LTP: {current_ltp}")
                 logging.info(f"_______________________________________________LTP change :{ltp_change}____currentLTP :{current_ltp}")
                 logging.info(f"Trade Started at {current_time} with market order at LTP: {current_ltp}")
