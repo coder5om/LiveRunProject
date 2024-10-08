@@ -2,7 +2,7 @@ import time
 from datetime import datetime, timedelta
 import pymysql
 from dhanhq import marketfeed, dhanhq
-from config import client_id, access_token, optionPercentChangeIn30Sec
+from config import client_id, access_token, security_id, quantity, profit_threshold,loss_threshold,ltp_threshold
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
@@ -11,25 +11,13 @@ from datetime import datetime
 from utility_methods import place_order  # Import utility functions
 
 # Add your Dhan Client ID and Access Token
-
-# 41487 PE
 dhan = dhanhq(client_id, access_token)
-security_id = "41306"
-fund = 50000
-quantity = 50
 
 # Structure for subscribing is (exchange_segment, "security_id", subscription_type)
 instruments = [(marketfeed.NSE_FNO, security_id, marketfeed.Ticker)]
 
 # Get the current timestamp with milliseconds in a human-readable format
 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-
-# Set capital and thresholds
-capital = 10000  # Initial capital
-profit_threshold = 0.3  # 5% profit
-loss_threshold = -0.15 # 10% loss
-ltp_threshold = 0.02  # 1% change to trigger a trade
-tradeAllowSignal = None
 
 # Configure logging
 log_file = 'WebSocket.log'
@@ -47,25 +35,34 @@ connection = pymysql.connect(host='localhost',
 
 cursor = connection.cursor()
 
-def wait_until_next_interval():
+def wait_for_next_interval(interval_minutes=3):
     now = datetime.now()
-    next_interval = now + timedelta(seconds=30 - now.second % 30)
-    next_interval = next_interval.replace(microsecond=0)
-    wait_time = (next_interval - now).total_seconds()
-    logging.info(f"Waiting {wait_time:.2f} seconds until the next interval.")
-    time.sleep(wait_time)  # Sleep until the next interval
+    # Calculate the number of seconds remaining until the next interval
+    next_interval = (now.minute // interval_minutes + 1) * interval_minutes
+    next_start_time = now.replace(minute=next_interval % 60, second=0, microsecond=0)
+
+    # Handle the hour overflow when the minute goes past 59
+    if next_interval >= 60 and now.hour == 23:
+        next_start_time = next_start_time.replace(hour=0)
+
+    wait_seconds = (next_start_time - now).total_seconds()
+    print(f"Waiting for {wait_seconds} seconds to start at the next 3-minute interval ({next_start_time.time()}).")
+    logging.info(f"Waiting for {wait_seconds} seconds to start at the next 3-minute interval ({next_start_time.time()}).")
+    time.sleep(wait_seconds)
 
 # Function to collect all prices over a 30-second interval
 def collect_prices_for_interval(data):
     prices = []
     start_time = datetime.now()
     logging.info(f"Price Collection started at :  {start_time} .")
-    end_time = start_time + timedelta(seconds=180)
+    print(f"Price Collection started at :  {start_time} .")
+    end_time = start_time + timedelta(seconds=60)
 
     while datetime.now() < end_time:
-        response = data.get_data()
-        current_ltp = float(response['LTP'])
-        prices.append(current_ltp)
+        response1 = data.get_data()
+        current_ltp1 = float(response1['LTP'])
+        logging.info(f"Collected - {current_ltp1} ")
+        prices.append(current_ltp1)
         time.sleep(0.5)  # Adjust based on frequency of price changes
 
     logging.info(f"Collected {prices} prices over the interval.")
@@ -74,28 +71,60 @@ def collect_prices_for_interval(data):
     logging.info(f"Price Collection ended at :  {v} .")
     return prices
 
-def check_price_difference(prices):
+def check_price_differenceandaandletype(prices):
+    tradeAllowSignal1 = False  # Initialize with a default value
+    candleType1 = None  # Initialize with None as default
+    per80ofCandlePrice1 = 0.0  # Initialize variables to 0.0 or another default value
+    per70ofCandlePrice1 = 0.0
+    per30ofCandlePrice1 = 0.0
+    first_price1 = None
+    last_price1 = None
 
     if len(prices) >= 2:  # Ensure there are at least two price points
-        first_price = prices[0]
-        last_price = prices[-1]
-        price_change_percentage = (last_price - first_price) / first_price * 100
+        first_price1 = prices[0]
+        last_price1 = prices[-1]
+        pricediffrence = last_price1 - first_price1
 
-        logging.info(f"First Price: {first_price}, Last Price: {last_price}")
+        price_change_percentage = (last_price1 - first_price1) / first_price1 * 100
+
+        if pricediffrence > 0:
+            per80ofCandlePrice1 = (pricediffrence * 0.8) + first_price1
+            per70ofCandlePrice1 = (pricediffrence * 0.7) + first_price1
+            per30ofCandlePrice1 = (pricediffrence * 0.3) + first_price1
+
+        logging.info(f"First Price: {first_price1}, Last Price: {last_price1}")
         logging.info(f"Price Change Percentage: {price_change_percentage}%")
 
-        if price_change_percentage >= optionPercentChangeIn30Sec :
-            tradeAllowSignal = True
-            logging.info(f"Price change is {optionPercentChangeIn30Sec}  or more, allowing trade.")
-        else:
-            tradeAllowSignal = False
-            logging.info(f"Price change is less than {optionPercentChangeIn30Sec} , not allowing trade.")
-
+        if price_change_percentage < 0:
+            tradeAllowSignal1 = False
+            logging.info(f"Price change is {price_change_percentage} less than 0 percent, not allowing trade.")
+        elif 0 <= price_change_percentage <= 5:
+            tradeAllowSignal1 = False
+            logging.info(f"Price change is {price_change_percentage} between 0 and 5, not allowing trade.")
+        elif 5 <= price_change_percentage < 15:
+            tradeAllowSignal1 = True
+            candleType1 = "NORMALBULLISH"
+            logging.info(
+                f"Price change is {price_change_percentage} between 5 and 15 percent, allowing trade. Normal bullish 3 min candle.")
+        elif 15 <= price_change_percentage < 25:
+            tradeAllowSignal1 = True
+            candleType1 = "BIGBAR"
+            logging.info(
+                f"Price change is {price_change_percentage} between 15 and 25 percent, allowing trade. BIG BAR 3 min candle.")
+        elif 25 <= price_change_percentage <= 40:
+            tradeAllowSignal1 = True
+            candleType1 = "SUPERBIGBAR"
+            logging.info(
+                f"Price change is {price_change_percentage} between 25 and 40 percent, allowing trade. SUPER BIG BAR 3 min candle.")
+        elif price_change_percentage > 40:
+            tradeAllowSignal1 = False
+            logging.info(f"Price change is {price_change_percentage} greater than 40, not favorable for trade.")
     else:
         logging.warning("Not enough price data to calculate the change.")
-        tradeAllowSignal = False
+        tradeAllowSignal1 = False
 
-    return tradeAllowSignal
+    print(tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1)
+    return tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1
 
 def store_trade_results(ltp_change, profit_or_loss_percent, buy_price=None, sell_price=None):
     sql = "INSERT INTO trade_results2 (ltp_change, profit_loss_percent, buy_price, sell_price) VALUES (%s, %s, %s, %s)"
@@ -103,6 +132,7 @@ def store_trade_results(ltp_change, profit_or_loss_percent, buy_price=None, sell
     connection.commit()
 
 try:
+    wait_for_next_interval()
     data = marketfeed.DhanFeed(client_id, access_token, instruments)
 
     # Variable to track the initial LTP and trade prices
@@ -111,17 +141,16 @@ try:
     trade_executed = False
     buy_price = None  # Track the buy price
     sell_price = None  # Track the sell price
+    tradeAllowSignal1 = None
 
     while True:
         data.run_forever()
-        response = data.get_data()
-        print("Response received:", response)
-        if trade_executed is False:
-            wait_until_next_interval()
+
         if trade_executed is False:
             prices = collect_prices_for_interval(data)
-            tradeAllowSignal = check_price_difference(prices)
+            tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1 = check_price_differenceandaandletype(prices)
 
+        response = data.get_data()
         # Check if the response contains LTP data
         if 'LTP' in response:
             # Convert LTP to float, as it's coming as a string
@@ -147,7 +176,7 @@ try:
             previous_ltp = current_ltp
 
             # Check for 2% LTP change to trigger a trade
-            if not trade_executed and tradeAllowSignal:
+            if not trade_executed and tradeAllowSignal1:
                 print(f"Placing Market order at LTP: {current_ltp}")
                 logging.info(f"_______________________________________________LTP change :{ltp_change}____currentLTP :{current_ltp}")
                 logging.info(f"Trade Started at {current_time} with market order at LTP: {current_ltp}")
