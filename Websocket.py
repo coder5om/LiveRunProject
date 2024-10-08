@@ -6,6 +6,7 @@ from config import client_id, access_token, security_id, quantity, profit_thresh
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
+import sys
 
 
 from utility_methods import place_order  # Import utility functions
@@ -35,7 +36,7 @@ connection = pymysql.connect(host='localhost',
 
 cursor = connection.cursor()
 
-def wait_for_next_interval(interval_minutes=3):
+def wait_for_next_interval(interval_minutes=1):
     now = datetime.now()
     # Calculate the number of seconds remaining until the next interval
     next_interval = (now.minute // interval_minutes + 1) * interval_minutes
@@ -124,6 +125,9 @@ def check_price_differenceandaandletype(prices):
         tradeAllowSignal1 = False
 
     print(tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1)
+    logging.info(f"tradeAllowSignal1 = {tradeAllowSignal1},candleType1 ={candleType1}, first_price1 ={first_price1},"
+                 f"last_price1 ={last_price1}, per30ofCandlePrice1 ={per30ofCandlePrice1}, per70ofCandlePrice1 ={per70ofCandlePrice1},"
+                 f"per80ofCandlePrice1 = {per80ofCandlePrice1} ")
     return tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1
 
 def store_trade_results(ltp_change, profit_or_loss_percent, buy_price=None, sell_price=None):
@@ -142,6 +146,12 @@ try:
     buy_price = None  # Track the buy price
     sell_price = None  # Track the sell price
     tradeAllowSignal1 = None
+    candleType1 = None
+    first_price1 = None
+    last_price1 = None
+    per30ofCandlePrice1 =0.0
+    per70ofCandlePrice1 =0.0
+    per80ofCandlePrice1 =0.0
 
     while True:
         data.run_forever()
@@ -151,6 +161,7 @@ try:
             tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1 = check_price_differenceandaandletype(prices)
 
         response = data.get_data()
+        # Check if the response contains LTP data
         # Check if the response contains LTP data
         if 'LTP' in response:
             # Convert LTP to float, as it's coming as a string
@@ -164,65 +175,138 @@ try:
                 previous_ltp = current_ltp  # Set previous LTP to the initial LTP
                 print(f"Initial LTP set to: {initial_ltp}")
 
-            print(f"initial LTP: {initial_ltp}")
-
             # Calculate percentage change in LTP
             ltp_change = (current_ltp - initial_ltp) / initial_ltp
             print(f"Previous LTP: {previous_ltp}, LTP Change: {ltp_change:.4f}")
-
             initial_ltp = current_ltp
-
             # Update previous LTP before potential trade
             previous_ltp = current_ltp
 
             # Check for 2% LTP change to trigger a trade
             if not trade_executed and tradeAllowSignal1:
-                print(f"Placing Market order at LTP: {current_ltp}")
-                logging.info(f"_______________________________________________LTP change :{ltp_change}____currentLTP :{current_ltp}")
-                logging.info(f"Trade Started at {current_time} with market order at LTP: {current_ltp}")
-                response = place_order('buy', dhan.BUY, security_id, quantity, current_ltp)
-                print(f"buy Order response {response} ")
-                logging.info("Buy order response: %s", response)
-                # Extract the first part of the tuple (the dictionary)
-                response_dict = response[0]
-                # Now, get the orderId from the 'data' key
-                order_id = response_dict.get('data', {}).get('orderId')
-                print("orderId is :" +order_id)
-                logging.info("Order ID: %s", order_id)
-                time.sleep(1)
-                order_status_response1 = dhan.get_order_by_id(order_id)
-                print(f"buy Order response getOrderById API {order_status_response1} ")
-                logging.info("Buy Order getOrderById API response: %s", order_status_response1)
+                if candleType1 == "NORMALBULLISH":
+                    logging.info(
+                        f"_____________________________________________ LTP change :{ltp_change}____currentLTP :{current_ltp}")
+                    logging.info(f"Trade Started at {current_time} with market order at LTP: {current_ltp}")
+                    response = place_order('buy', dhan.BUY, security_id, quantity, current_ltp)
+                    print(f"buy Order response {response} ")
+                    logging.info("Buy order response: %s", response)
+                    # Extract the first part of the tuple (the dictionary)
+                    response_dict = response[0]
+                    # Now, get the orderId from the 'data' key
+                    order_id = response_dict.get('data', {}).get('orderId')
+                    print("orderId is :" + order_id)
+                    logging.info("Order ID: %s", order_id)
+                    time.sleep(1)
+                    order_status_response1 = dhan.get_order_by_id(order_id)
+                    print(f"buy Order response getOrderById API {order_status_response1} ")
+                    logging.info("Buy Order getOrderById API response: %s", order_status_response1)
 
-                quantity = order_status_response1['data'].get('quantity')  # or 'filled_qty' if you want filled quantity
-                price = order_status_response1['data'].get('price')
-                logging.info("Quantity: %s, Price: %s", quantity, price)
-                logging.info("Buy price set at: %s", price)
-                if price is not None:
-                    buy_price = price  # Record the buy price
-                    trade_executed = True
-                else:
-                    buy_price = current_ltp
+                    quantity = order_status_response1['data'].get(
+                        'quantity')  # or 'filled_qty' if you want filled quantity
+                    price = order_status_response1['data'].get('price')
+                    logging.info("Quantity: %s, Price: %s", quantity, price)
+                    logging.info("Buy price set at: %s", price)
+                    if price is not None:
+                        buy_price = price  # Record the buy price
+                        trade_executed = True
+                    else:
+                        buy_price = current_ltp
 
-                print(f"Buy price set at: {buy_price}")
-                 # Set flag to indicate trade is executed
-                # Store dummy trade result with buy price
-                store_trade_results(ltp_change, 0, buy_price=buy_price)
-                initial_ltp = current_ltp  # Reset initial LTP for profit/loss tracking
+                    print(f"Buy price set at: {buy_price}")
+                    # Set flag to indicate trade is executed
+                    # Store dummy trade result with buy price
+                    # store_trade_results(ltp_change, 0, buy_price=buy_price)
+                    initial_ltp = current_ltp  # Reset initial LTP for profit/loss tracking
+
+                elif candleType1 == "BIGBAR":
+                    logging.info(
+                        f"_____________________________________________ LTP change :{ltp_change}____currentLTP :{current_ltp}")
+                    logging.info(f"Trade Started at {current_time} with market order at LTP: {current_ltp}")
+                    if current_ltp < per80ofCandlePrice1:
+                        response = place_order('buy', dhan.BUY, security_id, quantity, current_ltp)
+                        print(f"buy Order response {response} ")
+                        logging.info("Buy order response: %s", response)
+                        # Extract the first part of the tuple (the dictionary)
+                        response_dict = response[0]
+                        # Now, get the orderId from the 'data' key
+                        order_id = response_dict.get('data', {}).get('orderId')
+                        print("orderId is :" + order_id)
+                        logging.info("Order ID: %s", order_id)
+                        time.sleep(1)
+                        order_status_response1 = dhan.get_order_by_id(order_id)
+                        print(f"buy Order response getOrderById API {order_status_response1} ")
+                        logging.info("Buy Order getOrderById API response: %s", order_status_response1)
+
+                        quantity = order_status_response1['data'].get(
+                            'quantity')  # or 'filled_qty' if you want filled quantity
+                        price = order_status_response1['data'].get('price')
+                        logging.info("Quantity: %s, Price: %s", quantity, price)
+                        logging.info("Buy price set at: %s", price)
+                        if price is not None:
+                            buy_price = price  # Record the buy price
+                            trade_executed = True
+                        else:
+                            buy_price = current_ltp
+
+                        print(f"Buy price set at: {buy_price}")
+                        # Set flag to indicate trade is executed
+                        # Store dummy trade result with buy price
+                        # store_trade_results(ltp_change, 0, buy_price=buy_price)
+                        initial_ltp = current_ltp  # Reset initial LTP for profit/loss tracking
+
+                elif candleType1 == "SUPERBIGBAR":
+                    logging.info(
+                        f"_____________________________________________ LTP change :{ltp_change}____currentLTP :{current_ltp}")
+                    logging.info(f"Trade Started at {current_time} with market order at LTP: {current_ltp}")
+                    if current_ltp < per70ofCandlePrice1:
+                        response = place_order('buy', dhan.BUY, security_id, quantity, current_ltp)
+                        print(f"buy Order response {response} ")
+                        logging.info("Buy order response: %s", response)
+                        # Extract the first part of the tuple (the dictionary)
+                        response_dict = response[0]
+                        # Now, get the orderId from the 'data' key
+                        order_id = response_dict.get('data', {}).get('orderId')
+                        print("orderId is :" + order_id)
+                        logging.info("Order ID: %s", order_id)
+                        time.sleep(1)
+                        order_status_response1 = dhan.get_order_by_id(order_id)
+                        print(f"buy Order response getOrderById API {order_status_response1} ")
+                        logging.info("Buy Order getOrderById API response: %s", order_status_response1)
+
+                        quantity = order_status_response1['data'].get(
+                            'quantity')  # or 'filled_qty' if you want filled quantity
+                        price = order_status_response1['data'].get('price')
+                        logging.info("Quantity: %s, Price: %s", quantity, price)
+                        logging.info("Buy price set at: %s", price)
+                        if price is not None:
+                            buy_price = price  # Record the buy price
+                            trade_executed = True
+                        else:
+                            buy_price = current_ltp
+
+                        print(f"Buy price set at: {buy_price}")
+                        # Set flag to indicate trade is executed
+                        # Store dummy trade result with buy price
+                        # store_trade_results(ltp_change, 0, buy_price=buy_price)
+                        initial_ltp = current_ltp  # Reset initial LTP for profit/loss tracking
 
             # If trade is executed, track profit/loss
             if trade_executed:
+                isAveraged = False
                 profit_or_loss_percent_change = None
                 pnl = current_ltp - buy_price
-                running =pnl * quantity
-                if buy_price is not None and buy_price>0:
+                running = pnl * quantity
+                if buy_price is not None and buy_price > 0:
                     profit_or_loss_percent_change = (current_ltp - buy_price) / buy_price
-                    print(f"In trade and profit/loss % running is: {profit_or_loss_percent_change} running profit/loss :{running}")
-                    logging.info("In trade, profit/loss %%: %s, Running PnL: %s", profit_or_loss_percent_change, running)
+                    print(
+                        f"In trade and profit/loss % running is: {profit_or_loss_percent_change} running profit/loss :{running}")
+                    logging.info("In trade, profit/loss %%: %s, Running PnL: %s", profit_or_loss_percent_change,
+                                 running)
                 else:
                     print("Problem in trade execution check manually.. ")
                     logging.error("Problem in trade execution, check manually.")
-                # Check for profit booking condition (5% increase)
+
                 if profit_or_loss_percent_change >= profit_threshold:
                     print(f"Booking profit at LTP: {current_ltp}, Profit: {pnl}")
                     print(f"Sell price set at: {sell_price}")
@@ -245,40 +329,77 @@ try:
                     logging.info("Actual sell price: %s", sell_price)
 
                     print(f"sell Order response {response} ")
-                    store_trade_results(ltp_change, profit_or_loss_percent_change * 100, buy_price=buy_price, sell_price=sell_price)
-                    profit = (sell_price-buy_price)*quantity
-                    logging.info(f"Trade Ended at {current_time} with market order at sell price : {sell_price} profit: {profit}")
-                    time.sleep(300)
-                    trade_executed = False  # Reset trade status after booking profit
-                    initial_ltp = current_ltp  # Reset LTP for next trade
+                    # store_trade_results(ltp_change, profit_or_loss_percent_change * 100, buy_price=buy_price, sell_price=sell_price)
+                    profit = (sell_price - buy_price) * quantity
+                    logging.info(
+                        f"Trade Ended at {current_time} with market order at sell price : {sell_price} profit: {profit}")
+                    print("Terminating program gracefully.")
+                    sys.exit(0)  # Exit successfully
 
-                # Check for stop-loss condition (10% decrease)
-                elif profit_or_loss_percent_change <= loss_threshold:
-                    print(f"Booking loss at LTP: {current_ltp}, Loss: {profit_or_loss_percent_change * 100}%")
-                    sell_price = current_ltp  # Record the sell price
-                    print(f"Sell price set at: {sell_price}")
-                    response = place_order('sell', dhan.SELL, security_id, quantity, current_ltp)
-                    logging.info("Sell order response: %s", response)
-                    # Extract the first part of the tuple (the dictionary)
-                    response_dict = response[0]
-                    # Now, get the orderId from the 'data' key
-                    order_id = response_dict.get('data', {}).get('orderId')
-                    print("orderId is :" + order_id)
-                    logging.info("Sell Order ID: %s", order_id)
-                    time.sleep(1)
-                    order_status_response1 = dhan.get_order_by_id(order_id)
-                    print(f"Sell Order response getOrderById API : {order_status_response1} ")
-                    quantity = order_status_response1['data'].get('quantity')  # or 'filled_qty' if you want filled quantity
-                    sell_price = order_status_response1['data'].get('price')
 
-                    logging.info("Actual sell price: %s", sell_price)
-                    print(f"sell Order response {response} ")
-                    store_trade_results(ltp_change, profit_or_loss_percent_change * 100, buy_price=buy_price, sell_price=sell_price)
-                    loss = (sell_price-buy_price)*quantity
-                    logging.info(f"Trade Ended at {current_time} with market order at sell price : {sell_price} loss is :{loss} ")
-                    time.sleep(300)
-                    trade_executed = False  # Reset trade status after booking loss
-                    initial_ltp = current_ltp  # Reset LTP for next trade
+                elif profit_or_loss_percent_change <= 0:
+                    # put average buy trade at first_price that is bottom of candle
+                    if isAveraged is False and first_price1 > current_ltp:
+                        logging.info(
+                            f"_____________________________________________ LTP change :{ltp_change}____currentLTP :{current_ltp}")
+                        logging.info(
+                            f"Averaging Trade Started at {current_time} with market order at LTP: {current_ltp}")
+
+                        response = place_order('buy', dhan.BUY, security_id, quantity, current_ltp)
+                        print(f"Average buy Order response {response} ")
+                        logging.info("Average Buy order response: %s", response)
+                        # Extract the first part of the tuple (the dictionary)
+                        response_dict = response[0]
+                        # Now, get the orderId from the 'data' key
+                        order_id = response_dict.get('data', {}).get('orderId')
+                        print("orderId is :" + order_id)
+                        logging.info("Order ID: %s", order_id)
+                        time.sleep(1)
+                        order_status_response1 = dhan.get_order_by_id(order_id)
+                        print(f"Average buy Order response getOrderById API {order_status_response1} ")
+                        logging.info("Average Buy Order getOrderById API response: %s", order_status_response1)
+
+                        quantity = order_status_response1['data'].get(
+                            'quantity')  # or 'filled_qty' if you want filled quantity
+                        price = order_status_response1['data'].get('price')
+                        logging.info("Quantity: %s, Price: %s", quantity, price)
+                        logging.info("Average Buy price set at: %s", price)
+                        # ____________________________________________________#
+                        if price is not None:
+                            buy_price = (buy_price + price) / 2  # Buy price average in case bottom of candle reached
+                        # ____________________________________________________#
+
+                        # store_trade_results(ltp_change, 0, buy_price=buy_price)
+                        initial_ltp = current_ltp  # Reset initial LTP for profit/loss tracking
+                        isAveraged = True  # set flag as true to not average again
+
+                    elif isAveraged is True and profit_or_loss_percent_change >= loss_threshold:
+                        print(f"Booking loss at LTP: {current_ltp}, Loss: {profit_or_loss_percent_change * 100}%")
+                        sell_price = current_ltp  # Record the sell price
+                        print(f"Sell price set at: {sell_price}")
+                        response = place_order('sell', dhan.SELL, security_id, quantity, current_ltp)
+                        logging.info("Sell order response: %s", response)
+                        # Extract the first part of the tuple (the dictionary)
+                        response_dict = response[0]
+                        # Now, get the orderId from the 'data' key
+                        order_id = response_dict.get('data', {}).get('orderId')
+                        print("orderId is :" + order_id)
+                        logging.info("Sell Order ID: %s", order_id)
+                        time.sleep(1)
+                        order_status_response1 = dhan.get_order_by_id(order_id)
+                        print(f"Sell Order response getOrderById API : {order_status_response1} ")
+                        quantity = order_status_response1['data'].get(
+                            'quantity')  # or 'filled_qty' if you want filled quantity
+                        sell_price = order_status_response1['data'].get('price')
+
+                        logging.info("Actual sell price: %s", sell_price)
+                        print(f"sell Order response {response} ")
+                        # store_trade_results(ltp_change, profit_or_loss_percent_change * 100, buy_price=buy_price, sell_price=sell_price)
+                        loss = (sell_price - buy_price) * quantity
+                        logging.info(
+                            f"Trade Ended at {current_time} with market order at sell price : {sell_price} loss is :{loss} ")
+                        print("Terminating program gracefully.")
+                        sys.exit(0)  # Exit successfully
 
         time.sleep(1)  # Wait for 0.2 seconds before checking LTP again
 

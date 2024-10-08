@@ -4,7 +4,7 @@ access_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5
 
 # Trading Parameters
 capital = 10000  # Initial capital
-profit_threshold = 0.05  # 5% profit
+profit_threshold = 0.20  # 5% profit
 loss_threshold = -0.1  # 10% loss
 ltp_threshold = 0.03  # 3% change to trigger a trade
 
