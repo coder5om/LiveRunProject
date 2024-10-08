@@ -2,12 +2,11 @@ import time
 from datetime import datetime, timedelta
 import pymysql
 from dhanhq import marketfeed, dhanhq
-from config import client_id, access_token, security_id, quantity, profit_threshold,loss_threshold,ltp_threshold
+from config import client_id, access_token, security_id, quantity, profit_threshold, loss_threshold, ltp_threshold
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 import sys
-
 
 from utility_methods import place_order  # Import utility functions
 
@@ -36,6 +35,7 @@ connection = pymysql.connect(host='localhost',
 
 cursor = connection.cursor()
 
+
 def wait_for_next_interval(interval_minutes=1):
     now = datetime.now()
     # Calculate the number of seconds remaining until the next interval
@@ -48,8 +48,10 @@ def wait_for_next_interval(interval_minutes=1):
 
     wait_seconds = (next_start_time - now).total_seconds()
     print(f"Waiting for {wait_seconds} seconds to start at the next 3-minute interval ({next_start_time.time()}).")
-    logging.info(f"Waiting for {wait_seconds} seconds to start at the next 3-minute interval ({next_start_time.time()}).")
+    logging.info(
+        f"Waiting for {wait_seconds} seconds to start at the next 3-minute interval ({next_start_time.time()}).")
     time.sleep(wait_seconds)
+
 
 # Function to collect all prices over a 30-second interval
 def collect_prices_for_interval(data):
@@ -68,9 +70,10 @@ def collect_prices_for_interval(data):
 
     logging.info(f"Collected {prices} prices over the interval.")
     logging.info(f"Length of Collected {len(prices)} prices over the interval.")
-    v= datetime.now()
+    v = datetime.now()
     logging.info(f"Price Collection ended at :  {v} .")
     return prices
+
 
 def check_price_differenceandaandletype(prices):
     tradeAllowSignal1 = False  # Initialize with a default value
@@ -124,16 +127,20 @@ def check_price_differenceandaandletype(prices):
         logging.warning("Not enough price data to calculate the change.")
         tradeAllowSignal1 = False
 
-    print(tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1)
-    logging.info(f"tradeAllowSignal1 = {tradeAllowSignal1},candleType1 ={candleType1}, first_price1 ={first_price1},"
-                 f"last_price1 ={last_price1}, per30ofCandlePrice1 ={per30ofCandlePrice1}, per70ofCandlePrice1 ={per70ofCandlePrice1},"
-                 f"per80ofCandlePrice1 = {per80ofCandlePrice1} ")
+    print(tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1,
+          per80ofCandlePrice1)
+    logging.info(
+        f"tradeAllowSignal1 = {tradeAllowSignal1}, price_change_percentage ={price_change_percentage} ,candleType1 ={candleType1}, first_price1 ={first_price1},"
+        f"last_price1 ={last_price1}, per30ofCandlePrice1 ={per30ofCandlePrice1}, per70ofCandlePrice1 ={per70ofCandlePrice1},"
+        f"per80ofCandlePrice1 = {per80ofCandlePrice1} ")
     return tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1
+
 
 def store_trade_results(ltp_change, profit_or_loss_percent, buy_price=None, sell_price=None):
     sql = "INSERT INTO trade_results2 (ltp_change, profit_loss_percent, buy_price, sell_price) VALUES (%s, %s, %s, %s)"
     cursor.execute(sql, (ltp_change, profit_or_loss_percent, buy_price, sell_price))
     connection.commit()
+
 
 try:
     wait_for_next_interval()
@@ -149,16 +156,18 @@ try:
     candleType1 = None
     first_price1 = None
     last_price1 = None
-    per30ofCandlePrice1 =0.0
-    per70ofCandlePrice1 =0.0
-    per80ofCandlePrice1 =0.0
+    per30ofCandlePrice1 = 0.0
+    per70ofCandlePrice1 = 0.0
+    per80ofCandlePrice1 = 0.0
+    isAveraged = False
 
     while True:
         data.run_forever()
 
         if trade_executed is False:
             prices = collect_prices_for_interval(data)
-            tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1 = check_price_differenceandaandletype(prices)
+            tradeAllowSignal1, candleType1, first_price1, last_price1, per30ofCandlePrice1, per70ofCandlePrice1, per80ofCandlePrice1 = check_price_differenceandaandletype(
+                prices)
 
         response = data.get_data()
         # Check if the response contains LTP data
@@ -224,6 +233,12 @@ try:
                         f"_____________________________________________ LTP change :{ltp_change}____currentLTP :{current_ltp}")
                     logging.info(f"Trade Started at {current_time} with market order at LTP: {current_ltp}")
                     if current_ltp < per80ofCandlePrice1:
+                        trackForPrices = False
+                        while trackForPrices is False:
+                            current_ltp = current_ltp
+                            if current_ltp < per80ofCandlePrice1:
+                                trackForPrices = True
+
                         response = place_order('buy', dhan.BUY, security_id, quantity, current_ltp)
                         print(f"buy Order response {response} ")
                         logging.info("Buy order response: %s", response)
@@ -259,6 +274,12 @@ try:
                     logging.info(
                         f"_____________________________________________ LTP change :{ltp_change}____currentLTP :{current_ltp}")
                     logging.info(f"Trade Started at {current_time} with market order at LTP: {current_ltp}")
+                    trackForPrices = False
+                    while trackForPrices is False:
+                        current_ltp = current_ltp
+                        if current_ltp < per70ofCandlePrice1:
+                            trackForPrices = True
+
                     if current_ltp < per70ofCandlePrice1:
                         response = place_order('buy', dhan.BUY, security_id, quantity, current_ltp)
                         print(f"buy Order response {response} ")
@@ -293,14 +314,14 @@ try:
 
             # If trade is executed, track profit/loss
             if trade_executed:
-                isAveraged = False
                 profit_or_loss_percent_change = None
                 pnl = current_ltp - buy_price
                 running = pnl * quantity
                 if buy_price is not None and buy_price > 0:
                     profit_or_loss_percent_change = (current_ltp - buy_price) / buy_price
                     print(
-                        f"In trade and profit/loss % running is: {profit_or_loss_percent_change} running profit/loss :{running}")
+                        f"In trade and profit/loss % running is: {profit_or_loss_percent_change} running profit/loss :{running} buy_price: "
+                        f"{buy_price}, current_ltp: {current_ltp}, quantity: {quantity}")
                     logging.info("In trade, profit/loss %%: %s, Running PnL: %s", profit_or_loss_percent_change,
                                  running)
                 else:
@@ -365,15 +386,31 @@ try:
                         logging.info("Quantity: %s, Price: %s", quantity, price)
                         logging.info("Average Buy price set at: %s", price)
                         # ____________________________________________________#
-                        if price is not None:
+                        if price is not None and price > 0:
                             buy_price = (buy_price + price) / 2  # Buy price average in case bottom of candle reached
+                            quantity = quantity * 2
+                            isAveraged = True
                         # ____________________________________________________#
 
                         # store_trade_results(ltp_change, 0, buy_price=buy_price)
-                        initial_ltp = current_ltp  # Reset initial LTP for profit/loss tracking
-                        isAveraged = True  # set flag as true to not average again
+                        # Reset initial LTP for profit/loss tracking
+
 
                     elif isAveraged is True and profit_or_loss_percent_change >= loss_threshold:
+                        profit_or_loss_percent_change = None
+                        pnl = current_ltp - buy_price
+                        running = pnl * quantity
+                        if buy_price is not None and buy_price > 0:
+                            profit_or_loss_percent_change = (current_ltp - buy_price) / buy_price
+                            print(
+                                f"Before executing sell order trade and profit/loss % running is: {profit_or_loss_percent_change} running profit/loss :{running} buy_price: "
+                                f"{buy_price}, current_ltp: {current_ltp}, quantity: {quantity}")
+                            logging.info("In trade, profit/loss %%: %s, Running PnL: %s", profit_or_loss_percent_change,
+                                         running)
+                        else:
+                            print("Problem in trade execution check manually.. ")
+                            logging.error("Problem in trade execution, check manually.")
+
                         print(f"Booking loss at LTP: {current_ltp}, Loss: {profit_or_loss_percent_change * 100}%")
                         sell_price = current_ltp  # Record the sell price
                         print(f"Sell price set at: {sell_price}")
@@ -401,7 +438,7 @@ try:
                         print("Terminating program gracefully.")
                         sys.exit(0)  # Exit successfully
 
-        time.sleep(1)  # Wait for 0.2 seconds before checking LTP again
+        time.sleep(0.4)  # Wait for 0.2 seconds before checking LTP again
 
 except Exception as e:
     print(f"Error: {e}")
