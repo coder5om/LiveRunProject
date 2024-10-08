@@ -4,7 +4,7 @@ access_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5
 
 # Trading Parameters
 capital = 10000  # Initial capital
-profit_threshold = 0.20  # 5% profit
+profit_threshold = 0.50  # 5% profit
 loss_threshold = -0.2 # 10% loss
 ltp_threshold = 0.03  # 3% change to trigger a trade
 
@@ -12,4 +12,4 @@ quantity = 25
 wait_time = 600  # 10 minutes in seconds
 optionPercentChangeIn30Sec = 5
 
-security_id = "47432"
+security_id = "48537"
