@@ -1,5 +1,5 @@
 from dhanhq import dhanhq
-from config import capital, profit_threshold, loss_threshold, ltp_threshold, security_id, quantity,  wait_time, client_id, access_token
+from config import client_id, access_token
 import time
 import logging
 from logging.handlers import RotatingFileHandler

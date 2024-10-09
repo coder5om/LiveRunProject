@@ -2,7 +2,7 @@ import time
 from datetime import datetime, timedelta
 import pymysql
 from dhanhq import marketfeed, dhanhq
-from config import client_id, access_token, security_id, quantity, profit_threshold, loss_threshold, ltp_threshold
+from config import client_id, access_token, security_id, quantity, profit_threshold, NORMALBULLISH, BIGBAR, SUPERBIGBAR
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
@@ -36,7 +36,7 @@ connection = pymysql.connect(host='localhost',
 cursor = connection.cursor()
 
 
-def wait_for_next_interval(interval_minutes=1):
+def wait_for_next_interval(interval_minutes=2):
     now = datetime.now()
 
     # Calculate the next interval (in minutes) and handle overflow
@@ -74,13 +74,15 @@ def collect_prices_for_interval(data):
     logging.info(f"_____--------Price Collection started -----______")
     logging.info(f"Price Collection started at :  {start_time} .")
     print(f"Price Collection started at :  {start_time} .")
-    end_time = start_time + timedelta(seconds=180)
+    end_time = start_time + timedelta(seconds=120)
 
     while datetime.now() < end_time:
         response1 = data.get_data()
-        current_ltp1 = float(response1['LTP'])
-        print(f"Collected - {current_ltp1} ")
-        prices.append(current_ltp1)
+        print(f"response - {response1} ")
+        if 'LTP' in response1:
+            current_ltp1 = float(response1['LTP'])
+            print(f"Collected - {current_ltp1} ")
+            prices.append(current_ltp1)
         time.sleep(0.5)  # Adjust based on frequency of price changes
 
     logging.info(f"Collected {prices} prices over the interval.")
@@ -88,10 +90,6 @@ def collect_prices_for_interval(data):
     v = datetime.now()
     logging.info(f"Price Collection ended at :  {v} .")
     return prices
-
-NORMALBULLISH = 'NORMALBULLISH'
-BIGBAR = 'BIGBAR'
-SUPERBIGBAR = 'SUPERBIGBAR'
 
 def check_price_differenceandaandletype(prices):
     tradeAllowSignal1 = False  # Initialize with a default value
@@ -104,7 +102,7 @@ def check_price_differenceandaandletype(prices):
     price_change_percentage = None
 
     if len(prices) >= 2:  # Ensure there are at least two price points
-        first_price1 = prices[0]
+        first_price1 = min(prices)
         last_price1 = prices[-1]
         pricediffrence = last_price1 - first_price1
 
@@ -124,7 +122,7 @@ def check_price_differenceandaandletype(prices):
         elif 0 <= price_change_percentage <= 5:
             tradeAllowSignal1 = False
             logging.info(f"Price change is {price_change_percentage} between 0 and 5, not allowing trade.")
-        elif 5 <= price_change_percentage < 15:
+        elif 3 <= price_change_percentage < 15:
             tradeAllowSignal1 = True
             candleType1 = NORMALBULLISH
             logging.info(
@@ -351,54 +349,40 @@ try:
 
                 elif profit_or_loss_percent_change < 0:
                     # put average buy trade at first_price1 that is bottom of candle
-                    if isAveraged is False and first_price1 > current_ltp:
-                        logging.info(
-                            f"Averaging Trade Started at {current_time} with market order at LTP: {current_ltp}")
+                    # if isAveraged is False and first_price1 > current_ltp:
+                    #     logging.info(
+                    #         f"Averaging Trade Started at {current_time} with market order at LTP: {current_ltp}")
+                    #
+                    #     response = place_order('buy', dhan.BUY, security_id, quantity, current_ltp)
+                    #     logging.info("Average Buy order response: %s", response)
+                    #     # Extract the first part of the tuple (the dictionary)
+                    #     response_dict = response[0]
+                    #     # Now, get the orderId from the 'data' key
+                    #     order_id = response_dict.get('data', {}).get('orderId')
+                    #     logging.info("Order ID: %s", order_id)
+                    #     time.sleep(1)
+                    #     order_status_response1 = dhan.get_order_by_id(order_id)
+                    #     logging.info("Average Buy Order getOrderById API response: %s", order_status_response1)
+                    #
+                    #     quantity = order_status_response1['data'].get(
+                    #         'quantity')  # or 'filled_qty' if you want filled quantity
+                    #     price = order_status_response1['data'].get('price')
+                    #     logging.info("Quantity: %s, Price: %s", quantity, price)
+                    #     logging.info("Average Buy price set at: %s", price)
+                    #     # ____________________________________________________#
+                    #     if price is not None and price > 0 and order_status_response1['data'].get('price') != "REJECTED" :
+                    #         buy_price = (buy_price + price) / 2  # Buy price average in case bottom of candle reached
+                    #         quantity = quantity * 2
+                    #         isAveraged = True
+                    #     else:
+                    #         isAveraged = True
+                    #         logging.info("failed averaging attempt at : %s", current_ltp)
+                    #     # ____________________________________________________#
+                    #
+                    #     # store_trade_results(ltp_change, 0, buy_price=buy_price)
+                    #     # Reset initial LTP for profit/loss tracking
 
-                        response = place_order('buy', dhan.BUY, security_id, quantity, current_ltp)
-                        logging.info("Average Buy order response: %s", response)
-                        # Extract the first part of the tuple (the dictionary)
-                        response_dict = response[0]
-                        # Now, get the orderId from the 'data' key
-                        order_id = response_dict.get('data', {}).get('orderId')
-                        logging.info("Order ID: %s", order_id)
-                        time.sleep(1)
-                        order_status_response1 = dhan.get_order_by_id(order_id)
-                        logging.info("Average Buy Order getOrderById API response: %s", order_status_response1)
-
-                        quantity = order_status_response1['data'].get(
-                            'quantity')  # or 'filled_qty' if you want filled quantity
-                        price = order_status_response1['data'].get('price')
-                        logging.info("Quantity: %s, Price: %s", quantity, price)
-                        logging.info("Average Buy price set at: %s", price)
-                        # ____________________________________________________#
-                        if price is not None and price > 0 and order_status_response1['data'].get('price') != "REJECTED" :
-                            buy_price = (buy_price + price) / 2  # Buy price average in case bottom of candle reached
-                            quantity = quantity * 2
-                            isAveraged = True
-                        else:
-                            isAveraged = True
-                            logging.info("failed averaging attempt at : %s", current_ltp)
-                        # ____________________________________________________#
-
-                        # store_trade_results(ltp_change, 0, buy_price=buy_price)
-                        # Reset initial LTP for profit/loss tracking
-
-
-                    elif isAveraged is True and profit_or_loss_percent_change >= loss_threshold:
-                        # profit_or_loss_percent_change = None
-                        # pnl = current_ltp - buy_price
-                        # running = pnl * quantity
-                        # if buy_price is not None and buy_price > 0:
-                        #     profit_or_loss_percent_change = (current_ltp - buy_price) / buy_price
-                        #     print(
-                        #         f"Before executing sell order trade and profit/loss % running is: {profit_or_loss_percent_change} running profit/loss :{running} buy_price: "
-                        #         f"{buy_price}, current_ltp: {current_ltp}, quantity: {quantity}")
-                        #     logging.info("In trade, profit/loss %%: %s, Running PnL: %s", profit_or_loss_percent_change,
-                        #                  running)
-                        # else:
-                        #     print("Problem in trade execution check manually.. ")
-                        #     logging.error("Problem in trade execution, check manually.")
+                    if first_price1 > current_ltp:
 
                         print(f"Booking loss at LTP: {current_ltp}, Loss: {profit_or_loss_percent_change * 100}%")
                         response = place_order('sell', dhan.SELL, security_id, quantity, current_ltp)
@@ -425,7 +409,7 @@ try:
                         print("Terminating program gracefully.")
                         sys.exit(0)  # Exit successfully
 
-        time.sleep(0.5)  # Wait for 0.2 seconds before checking LTP again
+        time.sleep(0.8)  # Wait for 0.2 seconds before checking LTP again
 
 except Exception as e:
     print(f"Error: {e}")
